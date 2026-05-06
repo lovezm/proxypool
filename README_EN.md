@@ -58,7 +58,28 @@ Built in Rust + Tokio. A single port speaks HTTP CONNECT, plain-HTTP forwarding,
 
 ## Quick Start
 
-### 1. Build
+### With Docker (easiest)
+
+```bash
+git clone https://github.com/lovezm/proxypool.git
+cd proxypool
+docker compose up -d
+```
+
+First run compiles inside the builder image (~2–3 min); subsequent starts are instant. Open `http://<server-ip>:11078`, password `ergou123`.
+
+> Running in Docker publishes the ports directly to the host network, sidestepping any HTTP reverse-proxy interference from control panels like 宝塔/aaPanel.
+
+To remap host ports, edit `docker-compose.yml`:
+```yaml
+ports:
+  - "21077:11077"   # host 21077 → container 11077
+  - "21078:11078"
+```
+
+### From source
+
+#### 1. Build
 
 ```bash
 cargo build --release
@@ -66,7 +87,7 @@ cargo build --release
 
 Binary: `target/release/proxy-gateway` (Linux/macOS) or `proxy-gateway.exe` (Windows).
 
-### 2. Run
+#### 2. Run
 
 ```bash
 ./target/release/proxy-gateway
@@ -79,7 +100,7 @@ On first launch, it writes a default `config.toml` and creates `data/proxies.db`
 | Tunnel proxy | `0.0.0.0:11077` | `user` / `pass` |
 | Admin panel  | `http://127.0.0.1:11078` | password `ergou123` |
 
-### 3. Add proxies
+#### 3. Add proxies
 
 Open the admin panel, log in, paste lines into "批量导入" (bulk import):
 
@@ -90,7 +111,7 @@ foo:bar@3.3.3.3:8080
 socks5://4.4.4.4:1080:foo:bar
 ```
 
-### 4. Use it
+#### 4. Use it
 
 **Plain HTTP proxy:**
 ```bash

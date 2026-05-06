@@ -58,7 +58,28 @@
 
 ## 快速开始
 
-### 1. 构建
+### 用 Docker（最省事）
+
+```bash
+git clone https://github.com/lovezm/proxypool.git
+cd proxypool
+docker compose up -d
+```
+
+第一次会现编译（约 2-3 分钟），之后启动秒级。访问 `http://<服务器IP>:11078`，密码 `ergou123`。
+
+> Docker 模式下端口由 `docker-compose.yml` 直接发布到宿主机，绕开宝塔/nginx 等托管面板可能引入的 HTTP 反代干扰。
+
+如需自定义端口，编辑 `docker-compose.yml`：
+```yaml
+ports:
+  - "21077:11077"   # 把宿主机的 21077 映射到容器内的 11077
+  - "21078:11078"
+```
+
+### 从源码构建
+
+#### 1. 构建
 
 ```bash
 cargo build --release
@@ -66,7 +87,7 @@ cargo build --release
 
 可执行文件：`target/release/proxy-gateway` (Linux/macOS) 或 `proxy-gateway.exe` (Windows)。
 
-### 2. 启动
+#### 2. 启动
 
 ```bash
 ./target/release/proxy-gateway
@@ -81,7 +102,7 @@ cargo build --release
 | 隧道代理 | `0.0.0.0:11077` | `user` / `pass` |
 | 管理面板 | `http://127.0.0.1:11078` | 密码 `ergou123` |
 
-### 3. 添加代理
+#### 3. 添加代理
 
 打开管理面板登录，"批量导入"框粘贴：
 
@@ -94,7 +115,7 @@ socks5://4.4.4.4:1080:foo:bar
 
 回车导入即可。
 
-### 4. 使用
+#### 4. 使用
 
 **作为 HTTP 代理：**
 ```bash

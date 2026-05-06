@@ -1,0 +1,19 @@
+services:
+  proxy-gateway:
+    build: .
+    image: proxy-gateway:latest
+    container_name: proxy-gateway
+    restart: unless-stopped
+    ports:
+      - "11077:11077"   # 隧道代理 (HTTP/HTTPS/SOCKS5)
+      - "11078:11078"   # 管理面板 + REST API
+    volumes:
+      - ./data:/app/data           # SQLite 持久化
+      # 想自定义配置就把下面这行打开（首次启动 proxy-gateway 会写入默认值）
+      # - ./config.toml:/app/config.toml
+    # 限制日志大小，避免磁盘爆掉
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
