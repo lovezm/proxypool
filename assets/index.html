@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Proxy Gateway 管理</title>
+<style>
+:root {
+  --bg:#0f1115; --panel:#161922; --border:#262a35; --text:#e6e8ee;
+  --muted:#8a93a6; --accent:#5b8cff; --ok:#3ddc84; --warn:#ffb454; --bad:#ff6e6e;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text);
+       font:14px/1.5 "Segoe UI", -apple-system, system-ui, "Microsoft YaHei", sans-serif; }
+header { padding:16px 24px; border-bottom:1px solid var(--border);
+         display:flex; align-items:center; gap:16px; }
+header h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:0.3px; }
+header .pill { background:var(--panel); border:1px solid var(--border);
+               padding:4px 10px; border-radius:999px; color:var(--muted); font-size:12px; }
+.grid { display:grid; grid-template-columns: 360px 1fr; gap:16px; padding:16px 24px; }
+.panel { background:var(--panel); border:1px solid var(--border);
+         border-radius:10px; padding:16px; }
+.panel h2 { font-size:13px; color:var(--muted); font-weight:600;
+            text-transform:uppercase; letter-spacing:0.6px; margin:0 0 12px 0; }
+label { font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
+input, textarea, select, button {
+  font:inherit; color:var(--text); background:#0c0e14;
+  border:1px solid var(--border); border-radius:6px; padding:8px 10px;
+}
+input:focus, textarea:focus { outline:none; border-color:var(--accent); }
+textarea { width:100%; min-height:120px; resize:vertical; font-family:Consolas,monospace; font-size:12px; }
+button { cursor:pointer; background:var(--accent); border-color:var(--accent);
+         color:#fff; font-weight:600; padding:8px 14px; }
+button.ghost { background:transparent; border-color:var(--border); color:var(--text); font-weight:500; }
+button.danger { background:#391b1b; border-color:#5a2727; color:#ffb1b1; }
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+.kv { display:grid; grid-template-columns:120px 1fr; gap:8px 12px; align-items:center; }
+.kv input { width:100%; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th, td { padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; }
+th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
+tbody tr:hover { background:#1a1e2a; }
+.tag { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; }
+.tag.ok { background:#1a3525; color:var(--ok); }
+.tag.bad { background:#3a1c1c; color:var(--bad); }
+.tag.muted { background:#262a35; color:var(--muted); }
+.stat { display:flex; flex-direction:column; gap:2px; padding:10px 12px;
+        background:#0c0e14; border:1px solid var(--border); border-radius:8px; }
+.stat .num { font-size:20px; font-weight:700; }
+.stat .lbl { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
+.stats { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px; }
+.toast { position:fixed; right:20px; bottom:20px; padding:12px 16px;
+         background:var(--panel); border:1px solid var(--border); border-radius:8px;
+         box-shadow:0 10px 30px rgba(0,0,0,.45); display:none; }
+.toast.show { display:block; }
+code, .mono { font-family:Consolas,monospace; }
+hr { border:none; border-top:1px solid var(--border); margin:14px 0; }
+small.hint { color:var(--muted); }
+.icon-btn { background:transparent; border:none; color:var(--muted); padding:4px 6px; cursor:pointer; }
+#login-overlay { position:fixed; inset:0; background:var(--bg);
+                 display:none; align-items:center; justify-content:center;
+                 z-index:10; }
+.login-card { width:340px; background:var(--panel); border:1px solid var(--border);
+              border-radius:12px; padding:24px; box-shadow:0 10px 40px rgba(0,0,0,.5); }
+.login-card h2 { margin:0 0 6px 0; font-size:18px; }
+.login-card p { color:var(--muted); margin:0 0 16px 0; font-size:13px; }
+.login-card input { width:100%; margin-bottom:10px; padding:10px 12px; }
+.login-card button { width:100%; padding:10px; }
+.login-error { color:var(--bad); font-size:12px; min-height:16px; margin-top:6px; }
+.icon-btn:hover { color:var(--text); }
+.search { flex:1; }
+.scroll { max-height:60vh; overflow:auto; }
+.copy-row { display:flex; align-items:center; gap:8px; margin:6px 0; }
+.copy-code { flex:1; background:#0c0e14; border:1px solid var(--border);
+             padding:6px 10px; border-radius:6px; font-family:Consolas,monospace;
+             font-size:12px; color:var(--text); word-break:break-all; }
+.lbl-mini { width:48px; color:var(--muted); font-size:11px;
+            text-transform:uppercase; letter-spacing:0.5px; text-align:right; }
+</style>
+</head>
+<body>
+
+<div id="login-overlay">
+  <div class="login-card">
+    <h2>Proxy Gateway</h2>
+    <p>请输入管理面板登录密码</p>
+    <input id="login-pass" type="password" placeholder="密码" autofocus
+           onkeydown="if(event.key==='Enter') doLogin()" />
+    <button onclick="doLogin()">登录</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<div id="main">
+
+<header>
+  <h1>Proxy Gateway</h1>
+  <span class="pill" id="proxy-endpoint">代理 :11077</span>
+  <span class="pill" id="admin-endpoint">管理 :8080</span>
+  <span class="pill" id="version">async · rust</span>
+  <span style="flex:1"></span>
+  <button class="ghost" onclick="doLogout()">退出登录</button>
+</header>
+
+<div class="stats" style="padding:0 24px;">
+  <div class="stat"><span class="num" id="s-total">0</span><span class="lbl">代理总数</span></div>
+  <div class="stat"><span class="num" id="s-enabled">0</span><span class="lbl">已启用</span></div>
+  <div class="stat"><span class="num" id="s-alive">0</span><span class="lbl">存活</span></div>
+  <div class="stat"><span class="num" id="s-sessions">0</span><span class="lbl">会话</span></div>
+</div>
+
+<div class="grid">
+  <div>
+    <div class="panel">
+      <h2>批量导入</h2>
+      <small class="hint">支持每行一条，自动识别 <code>ip:port</code>、<code>ip:port:u:p</code>、<code>u:p@ip:port</code>，可加 <code>http://</code> 或 <code>socks5://</code> 前缀。</small>
+      <textarea id="bulk-text" placeholder="1.2.3.4:8080:user:pass&#10;socks5://5.6.7.8:1080&#10;u:p@9.9.9.9:3128"></textarea>
+      <div class="row">
+        <input id="bulk-tag" placeholder="tag (可选，如 us / cn)" style="width:140px;" />
+        <button onclick="bulkImport()">导入</button>
+        <button class="ghost" onclick="document.getElementById('bulk-text').value=''">清空</button>
+      </div>
+    </div>
+
+    <div style="height:12px;"></div>
+
+    <div class="panel">
+      <h2>认证 / 配置</h2>
+      <div class="kv">
+        <label>代理主用户名</label><input id="cfg-user" />
+        <label>代理密码</label><input id="cfg-pass" />
+        <label>面板登录密码</label><input id="cfg-admin-pass" type="password" placeholder="留空不修改" />
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button onclick="saveConfig()">保存</button>
+      </div>
+      <hr />
+      <small class="hint" style="display:block; line-height:1.7;">
+        <b>username 语义</b>（密码必须正确）：<br/>
+        • <code>&lt;主用户名&gt;</code> → 每连接随机一个 IP<br/>
+        • <code>time-5-xxx</code> / <code>time-30m-xxx</code> → 指定时间内同一 IP，到期自动换<br/>
+        • <code>任意其它字符串</code> → 长效会话，绑定一个 IP 不变；该 IP 出错时<b>自动轮换</b>
+      </small>
+    </div>
+
+    <div style="height:12px;"></div>
+
+    <div class="panel">
+      <h2>API 提取链接</h2>
+      <div class="row">
+        <input id="ext-count" type="number" value="5" min="1" max="500" style="width:80px;" oninput="syncExtract()" />
+        <select id="ext-format" onchange="syncExtract()">
+          <option value="user_pass_at_ip_port" selected>user:pass@ip:port</option>
+          <option value="ip_port_user_pass">ip:port:user:pass</option>
+          <option value="ip_port">ip:port</option>
+          <option value="url">scheme://user:pass@ip:port</option>
+        </select>
+        <select id="ext-proto" onchange="syncExtract()">
+          <option value="">all</option>
+          <option value="http">http</option>
+          <option value="socks5">socks5</option>
+        </select>
+      </div>
+      <div class="copy-row">
+        <code id="ext-url" class="copy-code"></code>
+        <button class="ghost" onclick="copyText('ext-url')">复制</button>
+        <button onclick="extract()">试取</button>
+      </div>
+      <textarea id="ext-out" readonly style="min-height:120px;"></textarea>
+    </div>
+
+    <div style="height:12px;"></div>
+
+    <div class="panel">
+      <h2>隧道连接生成</h2>
+      <div class="row">
+        <label style="display:inline;"><input type="radio" name="tun-mode" value="random" checked onchange="syncTunnel()"/> 随机</label>
+        <label style="display:inline;"><input type="radio" name="tun-mode" value="time" onchange="syncTunnel()"/> 时间粘性</label>
+        <input id="tun-minutes" type="number" value="5" min="1" max="1440" style="width:60px;" oninput="syncTunnel()" />分钟
+      </div>
+      <div class="row">
+        <label style="display:inline;"><input type="radio" name="tun-mode" value="session" onchange="syncTunnel()"/> 长效会话 id</label>
+        <input id="tun-session" placeholder="任意字符串" style="width:160px;" oninput="onSessionInput()" />
+        <button class="ghost" onclick="randomSession()" title="随机生成 session id">🎲</button>
+      </div>
+      <small class="hint">长效会话不过期，仅在该 IP 失败时自动轮换。</small>
+      <div class="copy-row"><span class="lbl-mini">通用</span><code id="tun-generic" class="copy-code"></code><button class="ghost" onclick="copyText('tun-generic')">复制</button></div>
+      <div class="copy-row"><span class="lbl-mini">user</span><code id="tun-user" class="copy-code"></code><button class="ghost" onclick="copyText('tun-user')">复制</button></div>
+      <div class="copy-row"><span class="lbl-mini">pass</span><code id="tun-pass" class="copy-code"></code><button class="ghost" onclick="copyText('tun-pass')">复制</button></div>
+      <div class="copy-row"><span class="lbl-mini">host</span><code id="tun-endpoint" class="copy-code"></code><button class="ghost" onclick="copyText('tun-endpoint')">复制</button></div>
+      <div class="copy-row"><span class="lbl-mini">curl</span><code id="tun-curl" class="copy-code"></code><button class="ghost" onclick="copyText('tun-curl')">复制</button></div>
+      <small class="hint">同一端口同时支持 HTTP/HTTPS 与 SOCKS5，按客户端协议自动识别。</small>
+    </div>
+  </div>
+
+  <div class="panel scroll">
+    <div class="row">
+      <h2 style="margin:0;">代理列表</h2>
+      <input class="search" id="filter" placeholder="按 ip / tag 搜索" oninput="renderTable()" />
+      <input id="test-host" value="apple.com" style="width:120px;" title="测速目标 host" />
+      <input id="test-port" value="443" style="width:60px;" title="测速目标 port" />
+      <button class="ghost" onclick="loadProxies()">刷新</button>
+      <button class="ghost" onclick="testAll()" id="btn-test-all">测速全部</button>
+      <button class="danger" onclick="clearAll()">清空全部</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>scheme</th><th>endpoint</th><th>auth</th>
+          <th>tag</th><th>状态</th><th>延迟</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+</div><!-- /#main -->
+
+<script>
+const $ = (id) => document.getElementById(id);
+let proxies = [];
+
+function toast(msg, kind="ok") {
+  const el = $("toast");
+  el.textContent = msg;
+  el.style.borderColor = kind === "bad" ? "#5a2727" : "#1a3525";
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+async function api(path, opts={}) {
+  opts.credentials = "same-origin";
+  const res = await fetch(path, opts);
+  if (res.status === 401) {
+    showLogin();
+    throw new Error("未登录");
+  }
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`${res.status}: ${txt}`);
+  }
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("json") ? res.json() : res.text();
+}
+
+function showLogin() {
+  $("login-overlay").style.display = "flex";
+  $("main").style.display = "none";
+  setTimeout(() => $("login-pass").focus(), 50);
+}
+function hideLogin() {
+  $("login-overlay").style.display = "none";
+  $("main").style.display = "";
+}
+
+async function doLogin() {
+  const pass = $("login-pass").value;
+  $("login-error").textContent = "";
+  try {
+    const res = await fetch("/api/login", {
+      method:"POST",
+      headers:{ "content-type":"application/json" },
+      body: JSON.stringify({ password: pass }),
+      credentials:"same-origin",
+    });
+    if (!res.ok) {
+      $("login-error").textContent = "密码错误";
+      return;
+    }
+    $("login-pass").value = "";
+    hideLogin();
+    init();
+  } catch (e) {
+    $("login-error").textContent = e.message;
+  }
+}
+
+async function doLogout() {
+  try { await fetch("/api/logout", { method:"POST", credentials:"same-origin" }); } catch {}
+  showLogin();
+}
+
+async function refreshStats() {
+  try {
+    const s = await api("/api/stats");
+    $("s-total").textContent = s.total;
+    $("s-enabled").textContent = s.enabled;
+    $("s-alive").textContent = s.alive;
+    $("s-sessions").textContent = s.sessions;
+  } catch (e) { /* ignore */ }
+}
+
+async function loadProxies() {
+  proxies = await api("/api/proxies");
+  renderTable();
+  refreshStats();
+}
+
+function latencyCell(p) {
+  if (p._testing) return '<span class="tag muted">testing…</span>';
+  if (!p.last_check_ms) return '<span class="tag muted">-</span>';
+  if (!p.last_latency_ms) return '<span class="tag bad">fail</span>';
+  const ms = p.last_latency_ms;
+  const cls = ms < 300 ? "ok" : ms < 800 ? "muted" : "bad";
+  return `<span class="tag ${cls}">${ms} ms</span>`;
+}
+
+function renderTable() {
+  const f = ($("filter").value || "").toLowerCase();
+  const rows = proxies.filter(p =>
+    !f ||
+    p.host.includes(f) ||
+    String(p.port).includes(f) ||
+    (p.tag||"").toLowerCase().includes(f));
+  const tbody = $("rows");
+  tbody.innerHTML = rows.map(p => `
+    <tr>
+      <td class="mono">${p.id}</td>
+      <td><span class="tag muted">${p.scheme}</span></td>
+      <td class="mono">${p.host}:${p.port}</td>
+      <td class="mono">${p.user ? p.user + ":" + (p.pass||"") : "-"}</td>
+      <td>${p.tag || ""}</td>
+      <td>
+        ${p.enabled ? '<span class="tag ok">enabled</span>' : '<span class="tag bad">disabled</span>'}
+        ${p.alive ? '' : ' <span class="tag bad">dead</span>'}
+      </td>
+      <td>${latencyCell(p)}</td>
+      <td>
+        <button class="icon-btn" title="测速" onclick="testOne(${p.id})">⚡</button>
+        <button class="icon-btn" title="${p.enabled?'禁用':'启用'}" onclick="toggle(${p.id}, ${p.enabled})">${p.enabled?'⏸':'▶'}</button>
+        <button class="icon-btn" title="删除" onclick="del(${p.id})">✕</button>
+      </td>
+    </tr>`).join("");
+}
+
+function targetQuery() {
+  const h = $("test-host").value.trim() || "apple.com";
+  const p = parseInt($("test-port").value, 10) || 443;
+  return `host=${encodeURIComponent(h)}&port=${p}`;
+}
+
+async function testOne(id) {
+  const p = proxies.find(x => x.id === id);
+  if (p) { p._testing = true; renderTable(); }
+  try {
+    const r = await api(`/api/proxies/${id}/test?${targetQuery()}`, { method: "POST" });
+    if (p) {
+      p._testing = false;
+      p.last_latency_ms = r.latency_ms || 0;
+      p.last_check_ms = Date.now();
+      p.alive = !!r.ok;
+    }
+    renderTable();
+    toast(r.ok ? `#${id}: ${r.latency_ms} ms` : `#${id}: ${r.error||"fail"}`, r.ok?"ok":"bad");
+  } catch (e) {
+    if (p) p._testing = false;
+    renderTable();
+    toast(e.message, "bad");
+  }
+}
+
+async function testAll() {
+  const btn = $("btn-test-all");
+  btn.disabled = true;
+  btn.textContent = "测速中…";
+  proxies.forEach(p => { if (p.enabled) p._testing = true; });
+  renderTable();
+  try {
+    const results = await api(`/api/proxies/test_all?${targetQuery()}`, { method: "POST" });
+    const map = new Map(results.map(r => [r.id, r]));
+    const now = Date.now();
+    proxies.forEach(p => {
+      const r = map.get(p.id);
+      p._testing = false;
+      if (r) {
+        p.last_latency_ms = r.latency_ms || 0;
+        p.last_check_ms = now;
+        p.alive = !!r.ok;
+      }
+    });
+    renderTable();
+    const ok = results.filter(r => r.ok).length;
+    toast(`完成：${ok}/${results.length} 通过`);
+  } catch (e) {
+    proxies.forEach(p => p._testing = false);
+    renderTable();
+    toast(e.message, "bad");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "测速全部";
+  }
+}
+
+async function bulkImport() {
+  const text = $("bulk-text").value.trim();
+  if (!text) return;
+  try {
+    const r = await api("/api/proxies/import", {
+      method:"POST",
+      headers:{ "content-type":"application/json" },
+      body: JSON.stringify({ text, tag: $("bulk-tag").value || null })
+    });
+    toast(`已导入 ${r.added}，重复 ${r.duplicates}，错误 ${r.errors.length}`);
+    if (r.errors.length) console.warn("import errors:", r.errors);
+    loadProxies();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+async function del(id) {
+  if (!confirm("确认删除该代理？")) return;
+  try { await api(`/api/proxies/${id}`, { method:"DELETE" }); loadProxies(); }
+  catch (e) { toast(e.message, "bad"); }
+}
+
+async function clearAll() {
+  if (!confirm("清空全部代理？此操作不可恢复。")) return;
+  try { await api(`/api/proxies`, { method:"DELETE" }); loadProxies(); }
+  catch (e) { toast(e.message, "bad"); }
+}
+
+async function toggle(id, enabled) {
+  const path = enabled ? "disable" : "enable";
+  try { await api(`/api/proxies/${id}/${path}`, { method:"POST" }); loadProxies(); }
+  catch (e) { toast(e.message, "bad"); }
+}
+
+let currentConfig = null;
+
+async function loadConfig() {
+  const c = await api("/api/config");
+  currentConfig = c;
+  $("cfg-user").value = c.auth_username;
+  $("cfg-pass").value = c.auth_password;
+  $("proxy-endpoint").textContent = `代理 :${c.proxy_port}`;
+  $("admin-endpoint").textContent = `管理 :${c.admin_port}`;
+  syncExtract();
+  syncTunnel();
+}
+
+async function saveConfig() {
+  try {
+    const adminPass = $("cfg-admin-pass").value;
+    await api("/api/config", {
+      method:"PUT",
+      headers:{ "content-type":"application/json" },
+      body: JSON.stringify({
+        auth_username: $("cfg-user").value,
+        auth_password: $("cfg-pass").value,
+        admin_password: adminPass || null,
+      })
+    });
+    currentConfig.auth_username = $("cfg-user").value;
+    currentConfig.auth_password = $("cfg-pass").value;
+    syncTunnel();
+    if (adminPass) toast("已保存。下次刷新需要使用新密码", "ok");
+    else toast("已保存");
+    $("cfg-admin-pass").value = "";
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function adminBase() {
+  return `${location.protocol}//${location.host}`;
+}
+function publicHost() {
+  return location.hostname || "127.0.0.1";
+}
+
+function syncExtract() {
+  const c = $("ext-count").value || "5";
+  const fmt = $("ext-format").value;
+  const proto = $("ext-proto").value;
+  const path = `/api/extract?count=${c}&format=${fmt}` + (proto?`&protocol=${proto}`:"");
+  $("ext-url").textContent = adminBase() + path;
+}
+
+async function extract() {
+  syncExtract();
+  const url = $("ext-url").textContent;
+  try {
+    const txt = await api(url.replace(adminBase(), ""));
+    $("ext-out").value = txt;
+  } catch (e) {
+    $("ext-out").value = e.message;
+  }
+}
+
+function tunnelUsername() {
+  const mode = (document.querySelector('input[name="tun-mode"]:checked')||{}).value || "random";
+  const baseUser = (currentConfig && currentConfig.auth_username) || "user";
+  if (mode === "time") {
+    const m = parseInt($("tun-minutes").value, 10) || 5;
+    return `time-${m}-${baseUser}`;
+  }
+  if (mode === "session") {
+    const id = ($("tun-session").value || "").trim() || "default";
+    return id;
+  }
+  return baseUser;
+}
+
+function randomSession() {
+  const id = "s_" + Math.random().toString(36).slice(2, 10);
+  $("tun-session").value = id;
+  document.querySelector('input[name="tun-mode"][value="session"]').checked = true;
+  syncTunnel();
+}
+
+function onSessionInput() {
+  if ($("tun-session").value.trim()) {
+    document.querySelector('input[name="tun-mode"][value="session"]').checked = true;
+  }
+  syncTunnel();
+}
+
+function syncTunnel() {
+  if (!currentConfig) return;
+  const host = publicHost();
+  const port = currentConfig.proxy_port;
+  const pass = currentConfig.auth_password || "pass";
+  const fullUser = tunnelUsername();
+  $("tun-generic").textContent  = `${fullUser}:${pass}@${host}:${port}`;
+  $("tun-user").textContent     = fullUser;
+  $("tun-pass").textContent     = pass;
+  $("tun-endpoint").textContent = `${host}:${port}`;
+  $("tun-curl").textContent     = `curl -x http://${fullUser}:${pass}@${host}:${port} https://api.ipify.org`;
+}
+
+async function copyText(elId) {
+  const txt = $(elId).textContent;
+  try {
+    await navigator.clipboard.writeText(txt);
+    toast("已复制");
+  } catch {
+    // Fallback for non-https / older browsers.
+    const ta = document.createElement("textarea");
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); toast("已复制"); }
+    catch { toast("复制失败", "bad"); }
+    document.body.removeChild(ta);
+  }
+}
+
+async function init() {
+  try {
+    const r = await fetch("/api/stats", { credentials:"same-origin" });
+    if (r.status === 401) { showLogin(); return; }
+    hideLogin();
+    await loadProxies();
+    await loadConfig();
+    if (!window._statsTimer) {
+      window._statsTimer = setInterval(refreshStats, 4000);
+    }
+  } catch (e) {
+    showLogin();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
