@@ -163,10 +163,11 @@ password = "ergou123"        # 管理面板登录密码
 
 ## REST API
 
-> 除 `/api/health`、`/api/login` 外均需鉴权。鉴权方式三选一：
+> 除 `/api/health`、`/api/login` 外均需鉴权。鉴权方式四选一：
 > - Cookie `pg_token=...` （登录后自动设置）
 > - `Authorization: Bearer <token>`
 > - `Authorization: Basic <base64(任意:面板密码)>`（兼容 curl）
+> - **`?key=<面板密码>` URL 参数**（方便嵌入第三方工具/爬虫，例如 `?count=10&key=ergou123`）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|

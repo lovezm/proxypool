@@ -388,7 +388,8 @@ async fn require_admin_auth(
     req: Request,
     next: Next,
 ) -> Response {
-    if check_auth(&state, req.headers()) {
+    let query = req.uri().query().map(|s| s.to_string());
+    if check_auth(&state, req.headers(), query.as_deref()) {
         return next.run(req).await;
     }
     (
@@ -398,7 +399,23 @@ async fn require_admin_auth(
         .into_response()
 }
 
-fn check_auth(state: &Arc<AppState>, headers: &axum::http::HeaderMap) -> bool {
+fn check_auth(
+    state: &Arc<AppState>,
+    headers: &axum::http::HeaderMap,
+    query: Option<&str>,
+) -> bool {
+    // 0. ?key=<admin_password> query param — convenient for scripts /
+    //    third-party tools that can't set custom headers.
+    if let Some(q) = query {
+        let configured = state.config.read().admin_auth.password.clone();
+        for pair in q.split('&') {
+            if let Some((k, v)) = pair.split_once('=') {
+                if k == "key" && percent_decode(v) == configured {
+                    return true;
+                }
+            }
+        }
+    }
     // 1. Cookie.
     if let Some(c) = headers
         .get(header::COOKIE)
@@ -439,6 +456,37 @@ fn check_auth(state: &Arc<AppState>, headers: &axum::http::HeaderMap) -> bool {
         }
     }
     false
+}
+
+/// Minimal percent-decoder for query-param values.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                let hi = (bytes[i + 1] as char).to_digit(16);
+                let lo = (bytes[i + 2] as char).to_digit(16);
+                if let (Some(h), Some(l)) = (hi, lo) {
+                    out.push((h * 16 + l) as u8);
+                    i += 3;
+                } else {
+                    out.push(bytes[i]);
+                    i += 1;
+                }
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[derive(Deserialize)]

@@ -164,6 +164,7 @@ Editable live via the admin panel → Auth/Config (changing the admin password f
 > - Cookie `pg_token=...` (set by `/api/login`)
 > - `Authorization: Bearer <token>`
 > - `Authorization: Basic <base64(any:adminPassword)>` (curl-friendly)
+> - **`?key=<adminPassword>` URL parameter** (for embedding in third-party tools / scrapers, e.g. `?count=10&key=ergou123`)
 
 | Method | Path | Notes |
 |---|---|---|
