@@ -26,6 +26,7 @@ Built in Rust + Tokio. A single port speaks HTTP CONNECT, plain-HTTP forwarding,
 - ✅ Web admin panel with custom login form (no native browser pop-up).
 - ✅ HTTP Basic Auth also accepted (handy for curl / scripts).
 - ✅ Sticky-session upstream errors trigger automatic re-pick + retry (up to 3 attempts).
+- ✅ **Temporary IP blacklist**: `/api/disable?ip=...` instantly excludes a host from extract; a background task auto-revives any IP disabled for >12 h.
 
 ---
 
@@ -199,10 +200,12 @@ Editable live via the admin panel → Auth/Config (changing the admin password f
 | POST | `/api/proxies/import` | bulk `{text, tag?}` |
 | DELETE | `/api/proxies` | wipe all |
 | DELETE | `/api/proxies/:id` | delete one |
-| POST | `/api/proxies/:id/enable` \| `/disable` | toggle |
+| POST | `/api/proxies/:id/enable` \| `/disable` | toggle by ID |
+| GET / POST | `/api/disable?ip=<IP>` | disable every entry whose host matches `<IP>` (across all ports), returns `matched` count |
+| GET / POST | `/api/enable?ip=<IP>` | enable every entry whose host matches `<IP>` |
 | POST | `/api/proxies/:id/test` | latency test (default `apple.com:443`) |
 | POST | `/api/proxies/test_all` | parallel latency test (concurrency 32) |
-| GET  | `/api/extract?count=N&format=…&protocol=…` | plain-text list, one per line |
+| GET  | `/api/extract?count=N&format=…&protocol=…` | plain-text list, one per line (disabled entries are skipped) |
 | GET  / PUT | `/api/config` | read / update config |
 
 `format` values:

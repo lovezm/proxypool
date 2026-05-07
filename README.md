@@ -26,6 +26,7 @@
 - ✅ Web 管理面板，含登录、登出、密码加密保护
 - ✅ Basic Auth 同时支持（方便 curl 脚本）
 - ✅ 上游连接出错对 sticky 会话自动重试 + 轮换最多 3 次
+- ✅ **按 IP 临时屏蔽**：`/api/disable?ip=...` 一键停用，extract API 自动跳过；停用满 12 小时后定时任务自动恢复
 
 ---
 
@@ -202,10 +203,12 @@ password = "ergou123"        # 管理面板登录密码
 | POST | `/api/proxies/import` | 批量导入 `{text, tag?}` |
 | DELETE | `/api/proxies` | 清空所有 |
 | DELETE | `/api/proxies/:id` | 删除一条 |
-| POST | `/api/proxies/:id/enable` \| `/disable` | 启停 |
+| POST | `/api/proxies/:id/enable` \| `/disable` | 按 ID 启停 |
+| GET / POST | `/api/disable?ip=<IP>` | 按 IP 停用所有匹配条目（多端口同 IP 一并），返回 `matched` 数 |
+| GET / POST | `/api/enable?ip=<IP>` | 按 IP 启用所有匹配条目 |
 | POST | `/api/proxies/:id/test` | 测速一条 (默认 apple.com:443) |
 | POST | `/api/proxies/test_all` | 并发测速全部 (上限 32) |
-| GET  | `/api/extract?count=N&format=...&protocol=...` | 提取 N 条，纯文本一行一条 |
+| GET  | `/api/extract?count=N&format=...&protocol=...` | 提取 N 条，纯文本一行一条（自动跳过已停用的）|
 | GET  | `/api/config` / PUT `/api/config` | 读 / 改配置 |
 
 `format` 支持：

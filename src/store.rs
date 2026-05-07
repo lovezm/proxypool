@@ -28,6 +28,10 @@ pub struct Proxy {
     pub last_latency_ms: AtomicU64,
     /// Unix ms of last successful health check (0 = never).
     pub last_check_ms: AtomicU64,
+    /// Unix ms when this proxy was disabled (0 = enabled, or pre-tracking).
+    /// Used by the auto-recovery task to re-enable proxies that have been
+    /// disabled longer than the grace period.
+    pub disabled_at_ms: AtomicU64,
     pub created_at: i64,
 }
 
@@ -49,6 +53,7 @@ impl Proxy {
             alive: self.alive.load(Ordering::Relaxed),
             last_latency_ms: self.last_latency_ms.load(Ordering::Relaxed),
             last_check_ms: self.last_check_ms.load(Ordering::Relaxed),
+            disabled_at_ms: self.disabled_at_ms.load(Ordering::Relaxed),
             created_at: self.created_at,
         }
     }
@@ -67,6 +72,7 @@ pub struct ProxyView {
     pub alive: bool,
     pub last_latency_ms: u64,
     pub last_check_ms: u64,
+    pub disabled_at_ms: u64,
     pub created_at: i64,
 }
 
@@ -96,21 +102,29 @@ impl ProxyStore {
 
         sqlx::query(
             r#"CREATE TABLE IF NOT EXISTS proxies (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                scheme      TEXT NOT NULL,
-                host        TEXT NOT NULL,
-                port        INTEGER NOT NULL,
-                user        TEXT,
-                pass        TEXT,
-                tag         TEXT,
-                enabled     INTEGER NOT NULL DEFAULT 1,
-                alive       INTEGER NOT NULL DEFAULT 1,
-                created_at  INTEGER NOT NULL,
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                scheme       TEXT NOT NULL,
+                host         TEXT NOT NULL,
+                port         INTEGER NOT NULL,
+                user         TEXT,
+                pass         TEXT,
+                tag          TEXT,
+                enabled      INTEGER NOT NULL DEFAULT 1,
+                alive        INTEGER NOT NULL DEFAULT 1,
+                disabled_at  INTEGER NOT NULL DEFAULT 0,
+                created_at   INTEGER NOT NULL,
                 UNIQUE(scheme, host, port, user, pass)
             )"#,
         )
         .execute(&pool)
         .await?;
+
+        // Migration for older DBs (column may already exist — ignore the error).
+        let _ = sqlx::query(
+            "ALTER TABLE proxies ADD COLUMN disabled_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .execute(&pool)
+        .await;
 
         Ok(Self {
             pool,
@@ -120,18 +134,37 @@ impl ProxyStore {
 
     pub async fn reload(&self) -> Result<()> {
         let rows = sqlx::query(
-            "SELECT id, scheme, host, port, user, pass, tag, enabled, alive, created_at \
+            "SELECT id, scheme, host, port, user, pass, tag, enabled, alive, \
+                    disabled_at, created_at \
              FROM proxies ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await?;
 
+        // Preserve volatile (in-memory only) atomics across reload.
+        let prev: std::collections::HashMap<i64, (u64, u64)> = self
+            .snapshot
+            .load()
+            .iter()
+            .map(|p| {
+                (
+                    p.id,
+                    (
+                        p.last_latency_ms.load(Ordering::Relaxed),
+                        p.last_check_ms.load(Ordering::Relaxed),
+                    ),
+                )
+            })
+            .collect();
+
         let mut list: Vec<Arc<Proxy>> = Vec::with_capacity(rows.len());
         for r in rows {
             let scheme: String = r.try_get("scheme")?;
             let scheme = Scheme::parse(&scheme).unwrap_or(Scheme::Http);
+            let id: i64 = r.try_get("id")?;
+            let (lat, chk) = prev.get(&id).copied().unwrap_or((0, 0));
             list.push(Arc::new(Proxy {
-                id: r.try_get("id")?,
+                id,
                 scheme,
                 host: r.try_get("host")?,
                 port: r.try_get::<i64, _>("port")? as u16,
@@ -140,8 +173,9 @@ impl ProxyStore {
                 tag: r.try_get("tag")?,
                 enabled: AtomicBool::new(r.try_get::<i64, _>("enabled")? != 0),
                 alive: AtomicBool::new(r.try_get::<i64, _>("alive")? != 0),
-                last_latency_ms: AtomicU64::new(0),
-                last_check_ms: AtomicU64::new(0),
+                last_latency_ms: AtomicU64::new(lat),
+                last_check_ms: AtomicU64::new(chk),
+                disabled_at_ms: AtomicU64::new(r.try_get::<i64, _>("disabled_at")? as u64),
                 created_at: r.try_get("created_at")?,
             }));
         }
@@ -272,20 +306,76 @@ impl ProxyStore {
     }
 
     pub async fn set_enabled(&self, id: i64, enabled: bool) -> Result<bool> {
-        let r = sqlx::query("UPDATE proxies SET enabled = ? WHERE id = ?")
+        let now_ms = unix_ms();
+        let stamp: i64 = if enabled { 0 } else { now_ms as i64 };
+        let r = sqlx::query("UPDATE proxies SET enabled = ?, disabled_at = ? WHERE id = ?")
             .bind(if enabled { 1i64 } else { 0i64 })
+            .bind(stamp)
             .bind(id)
             .execute(&self.pool)
             .await?;
         let updated = r.rows_affected() > 0;
         if updated {
-            // Update in-memory atomic without full reload.
             if let Some(p) = self.get(id) {
                 p.enabled.store(enabled, Ordering::Relaxed);
+                p.disabled_at_ms
+                    .store(if enabled { 0 } else { now_ms }, Ordering::Relaxed);
             }
         }
         Ok(updated)
     }
+
+    /// Enable / disable every proxy whose `host` matches `host`. Returns the
+    /// number of rows affected.
+    pub async fn set_enabled_by_host(&self, host: &str, enabled: bool) -> Result<u64> {
+        let now_ms = unix_ms();
+        let stamp: i64 = if enabled { 0 } else { now_ms as i64 };
+        let r = sqlx::query(
+            "UPDATE proxies SET enabled = ?, disabled_at = ? WHERE host = ?",
+        )
+        .bind(if enabled { 1i64 } else { 0i64 })
+        .bind(stamp)
+        .bind(host)
+        .execute(&self.pool)
+        .await?;
+        let n = r.rows_affected();
+        if n > 0 {
+            for p in self.snapshot.load().iter() {
+                if p.host == host {
+                    p.enabled.store(enabled, Ordering::Relaxed);
+                    p.disabled_at_ms
+                        .store(if enabled { 0 } else { now_ms }, Ordering::Relaxed);
+                }
+            }
+        }
+        Ok(n)
+    }
+
+    /// Re-enable any proxy that has been disabled for longer than `grace`
+    /// seconds. Returns the number of proxies brought back online.
+    pub async fn auto_enable_expired(&self, grace_secs: u64) -> Result<u64> {
+        let cutoff_ms = unix_ms().saturating_sub(grace_secs.saturating_mul(1000));
+        let r = sqlx::query(
+            "UPDATE proxies SET enabled = 1, disabled_at = 0 \
+             WHERE enabled = 0 AND disabled_at > 0 AND disabled_at < ?",
+        )
+        .bind(cutoff_ms as i64)
+        .execute(&self.pool)
+        .await?;
+        let n = r.rows_affected();
+        if n > 0 {
+            self.reload().await?;
+        }
+        Ok(n)
+    }
+}
+
+fn unix_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 #[derive(Debug, Clone, Serialize)]

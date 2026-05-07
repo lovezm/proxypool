@@ -30,6 +30,8 @@ pub async fn serve(state: Arc<AppState>, addr: String) -> Result<()> {
         .route("/api/proxies/:id/disable", post(disable_proxy))
         .route("/api/proxies/:id/test", post(test_proxy))
         .route("/api/proxies/test_all", post(test_all_proxies))
+        .route("/api/disable", get(disable_by_ip).post(disable_by_ip))
+        .route("/api/enable", get(enable_by_ip).post(enable_by_ip))
         .route("/api/config", get(get_config).put(update_config))
         .route("/api/extract", get(extract))
         .route("/api/sessions", get(list_sessions))
@@ -161,6 +163,53 @@ async fn disable_proxy(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let ok = s.store.set_enabled(id, false).await.map_err(ApiError::server)?;
     Ok(Json(serde_json::json!({ "ok": ok })))
+}
+
+#[derive(Deserialize)]
+struct ByIpParams {
+    /// Just the IP / host part — port is ignored (so `1.2.3.4` matches every
+    /// entry whose host = "1.2.3.4", regardless of port / user / pass).
+    ip: String,
+}
+
+async fn disable_by_ip(
+    State(s): State<Arc<AppState>>,
+    Query(p): Query<ByIpParams>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let ip = p.ip.trim();
+    if ip.is_empty() {
+        return Err(ApiError::bad_request("missing ?ip="));
+    }
+    let n = s
+        .store
+        .set_enabled_by_host(ip, false)
+        .await
+        .map_err(ApiError::server)?;
+    Ok(Json(serde_json::json!({
+        "ip": ip,
+        "matched": n,
+        "action": "disabled",
+    })))
+}
+
+async fn enable_by_ip(
+    State(s): State<Arc<AppState>>,
+    Query(p): Query<ByIpParams>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let ip = p.ip.trim();
+    if ip.is_empty() {
+        return Err(ApiError::bad_request("missing ?ip="));
+    }
+    let n = s
+        .store
+        .set_enabled_by_host(ip, true)
+        .await
+        .map_err(ApiError::server)?;
+    Ok(Json(serde_json::json!({
+        "ip": ip,
+        "matched": n,
+        "action": "enabled",
+    })))
 }
 
 #[derive(Serialize, Deserialize)]

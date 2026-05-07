@@ -78,6 +78,25 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Auto-revive proxies that have been disabled longer than the grace period.
+    {
+        let s = state.clone();
+        let grace_secs: u64 = 12 * 3600;
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                tick.tick().await;
+                match s.store.auto_enable_expired(grace_secs).await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::info!(
+                        "auto-enabled {n} proxy(ies) (disabled >{grace_secs}s)"
+                    ),
+                    Err(e) => tracing::warn!("auto-enable scan failed: {e:#}"),
+                }
+            }
+        });
+    }
+
     tokio::select! {
         r = admin => { r??; }
         r = proxy => { r??; }
