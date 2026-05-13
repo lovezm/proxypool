@@ -32,6 +32,9 @@ pub struct Proxy {
     /// Used by the auto-recovery task to re-enable proxies that have been
     /// disabled longer than the grace period.
     pub disabled_at_ms: AtomicU64,
+    /// Unix ms when this proxy was last returned by `/api/extract`. Volatile,
+    /// not persisted. Used to enforce the cross-request cooldown.
+    pub last_extracted_ms: AtomicU64,
     pub created_at: i64,
 }
 
@@ -54,6 +57,7 @@ impl Proxy {
             last_latency_ms: self.last_latency_ms.load(Ordering::Relaxed),
             last_check_ms: self.last_check_ms.load(Ordering::Relaxed),
             disabled_at_ms: self.disabled_at_ms.load(Ordering::Relaxed),
+            last_extracted_ms: self.last_extracted_ms.load(Ordering::Relaxed),
             created_at: self.created_at,
         }
     }
@@ -73,6 +77,7 @@ pub struct ProxyView {
     pub last_latency_ms: u64,
     pub last_check_ms: u64,
     pub disabled_at_ms: u64,
+    pub last_extracted_ms: u64,
     pub created_at: i64,
 }
 
@@ -142,7 +147,7 @@ impl ProxyStore {
         .await?;
 
         // Preserve volatile (in-memory only) atomics across reload.
-        let prev: std::collections::HashMap<i64, (u64, u64)> = self
+        let prev: std::collections::HashMap<i64, (u64, u64, u64)> = self
             .snapshot
             .load()
             .iter()
@@ -152,6 +157,7 @@ impl ProxyStore {
                     (
                         p.last_latency_ms.load(Ordering::Relaxed),
                         p.last_check_ms.load(Ordering::Relaxed),
+                        p.last_extracted_ms.load(Ordering::Relaxed),
                     ),
                 )
             })
@@ -162,7 +168,7 @@ impl ProxyStore {
             let scheme: String = r.try_get("scheme")?;
             let scheme = Scheme::parse(&scheme).unwrap_or(Scheme::Http);
             let id: i64 = r.try_get("id")?;
-            let (lat, chk) = prev.get(&id).copied().unwrap_or((0, 0));
+            let (lat, chk, ext) = prev.get(&id).copied().unwrap_or((0, 0, 0));
             list.push(Arc::new(Proxy {
                 id,
                 scheme,
@@ -176,6 +182,7 @@ impl ProxyStore {
                 last_latency_ms: AtomicU64::new(lat),
                 last_check_ms: AtomicU64::new(chk),
                 disabled_at_ms: AtomicU64::new(r.try_get::<i64, _>("disabled_at")? as u64),
+                last_extracted_ms: AtomicU64::new(ext),
                 created_at: r.try_get("created_at")?,
             }));
         }

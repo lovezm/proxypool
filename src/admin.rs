@@ -271,6 +271,12 @@ struct ExtractParams {
     format: String,
     /// Filter to a specific scheme: http | socks5
     protocol: Option<String>,
+    /// Seconds before a returned IP may be returned again (global across all
+    /// requests). 0 = no cooldown. Default 0.
+    #[serde(default)]
+    cooldown: u64,
+    /// `random` (default) or `seq` for round-robin order.
+    order: Option<String>,
 }
 
 fn one() -> usize {
@@ -285,7 +291,13 @@ async fn extract(
     Query(p): Query<ExtractParams>,
 ) -> Response {
     let count = p.count.clamp(1, 1000);
-    let mut picks = s.selector.extract(count);
+    let order = match p.order.as_deref() {
+        Some("seq") | Some("sequential") | Some("rr") => {
+            crate::selector::ExtractOrder::Sequential
+        }
+        _ => crate::selector::ExtractOrder::Random,
+    };
+    let mut picks = s.selector.extract(count, p.cooldown, order);
 
     if let Some(proto) = &p.protocol {
         let want = crate::parser::Scheme::parse(proto);

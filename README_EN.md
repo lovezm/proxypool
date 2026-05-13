@@ -205,7 +205,7 @@ Editable live via the admin panel → Auth/Config (changing the admin password f
 | GET / POST | `/api/enable?ip=<IP>` | enable every entry whose host matches `<IP>` |
 | POST | `/api/proxies/:id/test` | latency test (default `apple.com:443`) |
 | POST | `/api/proxies/test_all` | parallel latency test (concurrency 32) |
-| GET  | `/api/extract?count=N&format=…&protocol=…` | plain-text list, one per line (disabled entries are skipped) |
+| GET  | `/api/extract?count=N&format=…&protocol=…&cooldown=S&order=seq` | plain-text list, one per line (disabled entries are skipped) |
 | GET  / PUT | `/api/config` | read / update config |
 
 `format` values:
@@ -218,6 +218,19 @@ Editable live via the admin panel → Auth/Config (changing the admin password f
 | `url`                              | `scheme://user:pass@ip:port` |
 
 `protocol`: `http` or `socks5`, omit for any.
+
+**Extra `/api/extract` parameters:**
+
+| param | default | meaning |
+|---|---|---|
+| `cooldown` | `0` | seconds. A returned IP can't be returned again to any caller for this many seconds (global, cross-request). |
+| `order` | `random` | `random` for shuffle, `seq` / `sequential` for strict id rotation that skips cooldown-blocked IPs. |
+
+Example — one IP per call, each IP spaced ≥ 2 s apart:
+```
+/api/extract?count=1&cooldown=2&order=seq&key=...
+```
+Returns 503 when everything is on cooldown; keep polling.
 
 ---
 

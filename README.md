@@ -208,7 +208,7 @@ password = "ergou123"        # 管理面板登录密码
 | GET / POST | `/api/enable?ip=<IP>` | 按 IP 启用所有匹配条目 |
 | POST | `/api/proxies/:id/test` | 测速一条 (默认 apple.com:443) |
 | POST | `/api/proxies/test_all` | 并发测速全部 (上限 32) |
-| GET  | `/api/extract?count=N&format=...&protocol=...` | 提取 N 条，纯文本一行一条（自动跳过已停用的）|
+| GET  | `/api/extract?count=N&format=...&protocol=...&cooldown=S&order=seq` | 提取 N 条，纯文本一行一条（自动跳过已停用的）|
 | GET  | `/api/config` / PUT `/api/config` | 读 / 改配置 |
 
 `format` 支持：
@@ -221,6 +221,19 @@ password = "ergou123"        # 管理面板登录密码
 | `url`                            | `scheme://user:pass@ip:port` |
 
 `protocol` 可选：`http` / `socks5`，留空表示全部。
+
+**`/api/extract` 额外参数：**
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `cooldown` | `0` | 秒数。被提取的 IP 在此秒数内不再返回给任何请求（全局，跨请求） |
+| `order` | `random` | `random` 随机；`seq` / `sequential` 按 id 严格顺序轮转，冷却中的自动跳过 |
+
+例：每秒 1 个、IP 间隔不少于 2 秒：
+```
+/api/extract?count=1&cooldown=2&order=seq&key=...
+```
+全冷却时返回 503，等可用后继续。
 
 ---
 
